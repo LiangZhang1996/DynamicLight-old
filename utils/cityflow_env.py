@@ -230,31 +230,88 @@ class Intersection:
     def _update_feature(self):
         dic_feature = dict()
         dic_feature["cur_phase"] = [self.current_phase_index]
-        # if self.current_phase_index >= 0:
-        #     dic_feature["new_phase"] = self.dic_traffic_env_conf['PHASE'][self.current_phase_index]
-
-        # define phase representation of [0,0,0,0] type
-        # if self.current_phase_index > 0:
-        #     dic_feature["phase_2"] = [self.current_phase_index] # list(np.eye(4)[self.current_phase_index - 1])
-        # else:
-        #     dic_feature["phase_2"] = [self.current_phase_index]
-
         dic_feature["time_this_phase"] = [self.current_phase_duration]
         dic_feature["lane_num_vehicle_in"] = self._get_lane_num_vehicles(self.list_entering_lanes)
         dic_feature["lane_num_vehicle_out"] = self._get_lane_num_vehicles(self.list_exiting_lanes)
 
         dic_feature["lane_queue_vehicle_in"] = self._get_lane_queue_length(self.list_entering_lanes)
         dic_feature["lane_queue_vehicle_out"] = self._get_lane_queue_length(self.list_exiting_lanes)
-
+        dic_feature["traffic_movement_pressure"] = self._get_traffic_movement_pressure_efficient(
+            dic_feature["lane_queue_vehicle_in"],
+            dic_feature["lane_queue_vehicle_out"])
+        dic_feature["num_in_deg"] = self._orgnize_several_segments2()  # [None, 12*4]
         # -------- reward------------------
         dic_feature["pressure"] = self._get_pressure(dic_feature["lane_queue_vehicle_in"],
                                                      dic_feature["lane_queue_vehicle_out"])
         dic_feature["adjacency_matrix"] = self._get_adjacency_row()
-        #
-        # dic_feature["num_in_seg"] = self._orgnize_several_segments()  # [None, 12*3]
-        dic_feature["num_in_deg"] = self._orgnize_several_segments2()  # [None, 12*4]
-        # dic_feature["num_in_heg"] = self._orgnize_average_segments()  # [None, 12*4]
+
         self.dic_feature = dic_feature
+
+    def _get_traffic_movement_pressure_efficient(self, enterings, exitings):
+
+        list_approachs = ["W", "E", "N", "S"]
+        if self.num_lane == 8:
+            index_maps = {
+                "W": [0, 1],
+                "E": [2, 3],
+                "N": [4, 5],
+                "S": [6, 7],
+                "WN": [0, 1, 4, 5],
+                "SW": [0, 1, 6, 7],
+                "ES": [2, 3, 6, 7],
+                "NE": [2, 3, 4, 5]
+
+            }
+            turn_maps = ["S", "WN",
+                         "N", "ES",
+                         "W", "NE",
+                         "E", "SW"]
+        elif self.num_lane == 10:
+            index_maps = {
+                "W": [0, 1, 2],
+                "E": [3, 4, 5],
+                "N": [6, 7],
+                "S": [8, 9],
+                "NE": [6, 7, 3, 4, 5],
+                "SW": [8, 9, 0, 1, 2]
+            }
+            turn_maps = ["S", "W", "N",
+                         "N", "E", "S",
+                         "W", "NE",
+                         "E", "SW"]
+        elif self.num_lane == 12:
+            index_maps = {
+                "W": [0, 1, 2],
+                "E": [3, 4, 5],
+                "N": [6, 7, 8],
+                "S": [9, 10, 11]
+            }
+            turn_maps = ["S", "W", "N",
+                         "N", "E", "S",
+                         "W", "N", "E",
+                         "E", "S", "W"]
+        elif self.num_lane == 16:
+            index_maps = {
+                "W": [0, 1, 2, 3],
+                "E": [4, 5, 6, 7],
+                "N": [8, 9, 10, 11],
+                "S": [12, 13, 14, 15]
+            }
+            turn_maps = ["S", "W", "W", "N",
+                         "N", "E", "E", "S",
+                         "W", "N", "N", "E",
+                         "E", "S", "S", "W"]
+
+        # vehicles in exiting road
+        outs_maps = {}
+        for approach in index_maps.keys():
+            outs_maps[approach] = np.mean([exitings[i] for i in index_maps[approach]])
+        # turn_maps = ["S", "W", "N", "N", "E", "S", "W", "N", "E", "E", "S", "W"]
+        t_m_p = [enterings[j] - outs_maps[turn_maps[j]] for j in range(self.num_lane)]
+        if self.padding:
+            t_m_p = t_m_p + self.padding2
+
+        return t_m_p
 
     def _orgnize_several_segments2(self):
         part1, part2, part3, part4 = self._get_several_segments(lane_vehicles=self.dic_lane_vehicle_current_step,
@@ -299,292 +356,6 @@ class Intersection:
                 elif lane_length[lane] - 4 * obs_length < temp_v_distance <= lane_length[lane] - 3 * obs_length:
                     part4[lane].append(vehicle)
         return part1, part2, part3, part4
-
-    @staticmethod
-    def _get_phase_feature_8(feat):
-        return [feat[i] for i in [1, 7, 0, 6, 4, 10, 3, 9]]
-
-    @staticmethod
-    def _get_traffic_movement_pressure_general(enterings, exitings):
-        """
-            Created by LiangZhang
-            Calculate pressure with entering and exiting vehicles
-            only for 3 x 3 lanes intersection
-        """
-        list_approachs = ["W", "E", "N", "S"]
-        index_maps = {
-            "W": [0, 1, 2],
-            "E": [3, 4, 5],
-            "N": [6, 7, 8],
-            "S": [9, 10, 11]
-        }
-        # vehicles in exiting road
-        outs_maps = {}
-        for approach in list_approachs:
-            outs_maps[approach] = sum([exitings[i] for i in index_maps[approach]])
-        turn_maps = ["S", "W", "N", "N", "E", "S", "W", "N", "E", "E", "S", "W"]
-        t_m_p = [enterings[j] - outs_maps[turn_maps[j]] for j in range(12)]
-        return t_m_p
-
-    @staticmethod
-    def _get_traffic_movement_pressure_efficient(enterings, exitings):
-        """
-            Created by LiangZhang
-            Calculate pressure with entering and exiting vehicles
-            only for 3 x 3 lanes intersection
-        """
-        list_approachs = ["W", "E", "N", "S"]
-        index_maps = {
-            "W": [0, 1, 2],
-            "E": [3, 4, 5],
-            "N": [6, 7, 8],
-            "S": [9, 10, 11]
-        }
-        # vehicles in exiting road
-        outs_maps = {}
-        for approach in list_approachs:
-            outs_maps[approach] = sum([exitings[i] for i in index_maps[approach]])
-        turn_maps = ["S", "W", "N", "N", "E", "S", "W", "N", "E", "E", "S", "W"]
-        t_m_p = [enterings[j] - outs_maps[turn_maps[j]]/3 for j in range(12)]
-        return t_m_p
-
-    # get the part observation with the second length
-    def _get_part_observations_second(self):
-        """
-        return: lane_num_in_part
-                lane_num_out_part
-                lane_queue_in_part
-                lane_queue_out_part
-                lane_run_in_part
-        """
-        f_p_num, l_p_num, l_p_q = self._get_part_observations(lane_vehicles=self.dic_lane_vehicle_current_step,
-                                                              vehicle_distance=self.dic_vehicle_distance_current_step,
-                                                              vehicle_speed=self.dic_vehicle_speed_current_step,
-                                                              lane_length=self.lane_length,
-                                                              obs_length=self.obs_length_q,
-                                                              list_lanes=self.list_lanes)
-        # queue vehicles
-        lane_queue_in_part = [len(l_p_q[lane]) for lane in self.list_entering_lanes]
-        lane_queue_out_part = [len(l_p_q[lane]) for lane in self.list_exiting_lanes]
-
-        # num vehicles [first part and last part]
-        # last part
-        lane_num_in_part_l = [len(l_p_num[lane]) for lane in self.list_entering_lanes]
-        lane_num_out_part_l = [len(l_p_num[lane]) for lane in self.list_exiting_lanes]
-
-        # first part
-        lane_num_in_part_f = [len(f_p_num[lane]) for lane in self.list_entering_lanes]
-        lane_num_out_part_f = [len(f_p_num[lane]) for lane in self.list_exiting_lanes]
-
-        # lane part total
-        lane_num_in_part_total = list(np.array(lane_num_in_part_f)+np.array(lane_num_in_part_l))
-        lane_num_out_part_total = list(np.array(lane_num_out_part_f) + np.array(lane_num_out_part_l))
-
-        # running vehicles
-        lane_run_in_part = list(np.array(lane_num_in_part_l) - np.array(lane_queue_in_part))
-        return lane_queue_in_part, lane_queue_out_part, lane_num_in_part_total, lane_num_out_part_total, lane_run_in_part, lane_num_in_part_l
-
-    # get the part observation with the first length
-    def _get_part_observations_first(self):
-        """
-        return: lane_num_in_part
-                lane_num_out_part
-                lane_queue_in_part
-                lane_queue_out_part
-                lane_run_in_part
-        """
-        f_p_num, l_p_num, l_p_q = self._get_part_observations(lane_vehicles=self.dic_lane_vehicle_current_step,
-                                                              vehicle_distance=self.dic_vehicle_distance_current_step,
-                                                              vehicle_speed=self.dic_vehicle_speed_current_step,
-                                                              lane_length=self.lane_length,
-                                                              obs_length=self.obs_length,
-                                                              list_lanes=self.list_lanes)
-        # queue vehicles
-        lane_queue_in_part = [len(l_p_q[lane]) for lane in self.list_entering_lanes]
-        lane_queue_out_part = [len(l_p_q[lane]) for lane in self.list_exiting_lanes]
-
-        # num vehicles [first part and last part]
-        # last part
-        lane_num_in_part_l = [len(l_p_num[lane]) for lane in self.list_entering_lanes]
-        lane_num_out_part_l = [len(l_p_num[lane]) for lane in self.list_exiting_lanes]
-
-        # first part
-        lane_num_in_part_f = [len(f_p_num[lane]) for lane in self.list_entering_lanes]
-        lane_num_out_part_f = [len(f_p_num[lane]) for lane in self.list_exiting_lanes]
-
-        # lane part total
-        lane_num_in_part_total = list(np.array(lane_num_in_part_f)+np.array(lane_num_in_part_l))
-        lane_num_out_part_total = list(np.array(lane_num_out_part_f) + np.array(lane_num_out_part_l))
-
-        # running vehicles
-        lane_run_in_part = list(np.array(lane_num_in_part_l) - np.array(lane_queue_in_part))
-        return lane_queue_in_part, lane_queue_out_part, lane_num_in_part_total, lane_num_out_part_total, lane_run_in_part, lane_num_in_part_l
-
-    def _get_part_traffic_movement_features(self):
-        """
-        return: part_traffic_movement_pressure_num:     both the end and the beginning of the lane
-                part_patrric_movement_pressure_queue:   all at the end of the road
-                part_entering_running_vehicles:         part obs of the running vehicles
-        """
-        f_p_num, l_p_num, l_p_q = self._get_part_observations(lane_vehicles=self.dic_lane_vehicle_current_step,
-                                                              vehicle_distance=self.dic_vehicle_distance_current_step,
-                                                              vehicle_speed=self.dic_vehicle_speed_current_step,
-                                                              lane_length=self.lane_length,
-                                                              obs_length=self.obs_length,
-                                                              list_lanes=self.list_lanes)
-        """calculate traffic_movement_pressure with part queue"""
-        list_entering_part_queue = [len(l_p_q[lane]) for lane in self.list_entering_lanes]
-        list_exiting_part_queue = [len(l_p_q[lane]) for lane in self.list_exiting_lanes]
-        tmp_queue_efficient_part = self._get_traffic_movement_pressure_efficient(list_entering_part_queue,
-                                                                                 list_exiting_part_queue)
-        tmp_queue_part = self._get_traffic_movement_pressure_general(list_entering_part_queue,
-                                                                     list_exiting_part_queue)
-
-        """calculate traffic_movement_pressure with part num vehicle"""
-        # entering
-        list_entering_num_f = [len(f_p_num[lane]) for lane in self.list_entering_lanes]
-        list_entering_num_l = [len(l_p_num[lane]) for lane in self.list_entering_lanes]
-        entering_num = np.array(list_entering_num_f) + np.array(list_entering_num_l)
-        # exiting
-        list_exiting_num_f = [len(f_p_num[lane]) for lane in self.list_exiting_lanes]
-        list_exiting_num_l = [len(l_p_num[lane]) for lane in self.list_exiting_lanes]
-        exiting_num = np.array(list_exiting_num_f) + np.array(list_exiting_num_l)
-        traffic_movement_pressure_nums = self._get_traffic_movement_pressure_general(entering_num, exiting_num)
-        # part of entering running vehicles, all at the end of the road
-        part_entering_running = np.array(list_entering_num_l) - np.array(list_entering_part_queue)
-
-        return traffic_movement_pressure_nums, tmp_queue_part, tmp_queue_efficient_part, part_entering_running, list_entering_part_queue
-
-    @staticmethod
-    def _get_part_observations(lane_vehicles, vehicle_distance, vehicle_speed,
-                               lane_length, obs_length, list_lanes):
-        """
-            Input: lane_vehicles :      Dict{lane_id    :   [vehicle_ids]}
-                   vehicle_distance:    Dict{vehicle_id :   float(dist)}
-                   vehicle_speed:       Dict{vehicle_id :   float(speed)}
-                   lane_length  :       Dict{lane_id    :   float(length)}
-                   obs_length   :       The part observation length
-                   list_lanes   :       List[lane_ids at the intersection]
-        :return:
-                    part_vehicles:      Dict{ lane_id, [vehicle_ids]}
-        """
-        # get vehicle_ids and speeds
-        first_part_num_vehicle = {}
-        first_part_queue_vehicle = {}  # useless, at the begin of lane, there is no waiting vechiles
-        last_part_num_vehicle = {}
-        last_part_queue_vehicle = {}
-
-        for lane in list_lanes:
-            first_part_num_vehicle[lane] = []
-            first_part_queue_vehicle[lane] = []
-            last_part_num_vehicle[lane] = []
-            last_part_queue_vehicle[lane] = []
-            last_part_obs_length = lane_length[lane] - obs_length
-            for vehicle in lane_vehicles[lane]:
-                """ get the first part of obs
-                    That is vehicle_distance <= obs_length 
-                """
-                # set as num_vehicle
-                if "shadow" in vehicle:  # remove the shadow
-                    vehicle = vehicle[:-7]
-                temp_v_distance = vehicle_distance[vehicle]
-                if temp_v_distance <= obs_length:
-                    first_part_num_vehicle[lane].append(vehicle)
-                    # analyse if waiting
-                    if vehicle_speed[vehicle] <= 0.1:
-                        first_part_queue_vehicle[lane].append(vehicle)
-
-                """ get the last part of obs
-                    That is  lane_length-obs_length <= vehicle_distance <= lane_length 
-                """
-                if temp_v_distance >= last_part_obs_length:
-                    last_part_num_vehicle[lane].append(vehicle)
-                    # analyse if waiting
-                    if vehicle_speed[vehicle] <= 0.1:
-                        last_part_queue_vehicle[lane].append(vehicle)
-
-        return first_part_num_vehicle, last_part_num_vehicle, last_part_queue_vehicle
-
-    def _get_part_observations_3rd(self):
-        """
-        return: lane_num_in_part
-                lane_num_out_part
-                lane_queue_in_part
-                lane_queue_out_part
-                lane_run_in_part
-        """
-        f_p_num, l_p_num, l_p_q = self._get_part_observations_3(lane_vehicles=self.dic_lane_vehicle_current_step,
-                                                                vehicle_distance=self.dic_vehicle_distance_current_step,
-                                                                vehicle_speed=self.dic_vehicle_speed_current_step,
-                                                                lane_length=self.lane_length,
-                                                                list_lanes=self.list_lanes)
-        # queue vehicles
-        lane_queue_in_part = [len(l_p_q[lane]) for lane in self.list_entering_lanes]
-        lane_queue_out_part = [len(l_p_q[lane]) for lane in self.list_exiting_lanes]
-
-        # num vehicles [first part and last part]
-        # last part
-        lane_num_in_part_l = [len(l_p_num[lane]) for lane in self.list_entering_lanes]
-        lane_num_out_part_l = [len(l_p_num[lane]) for lane in self.list_exiting_lanes]
-
-        # first part
-        lane_num_in_part_f = [len(f_p_num[lane]) for lane in self.list_entering_lanes]
-        lane_num_out_part_f = [len(f_p_num[lane]) for lane in self.list_exiting_lanes]
-
-        # running vehicles
-        lane_run_in_part = list(np.array(lane_num_in_part_l) - np.array(lane_queue_in_part))
-        return lane_num_out_part_f, lane_run_in_part
-
-    @staticmethod
-    def _get_part_observations_3(lane_vehicles, vehicle_distance, vehicle_speed,
-                               lane_length, list_lanes):
-        """
-            Input: lane_vehicles :      Dict{lane_id    :   [vehicle_ids]}
-                   vehicle_distance:    Dict{vehicle_id :   float(dist)}
-                   vehicle_speed:       Dict{vehicle_id :   float(speed)}
-                   lane_length  :       Dict{lane_id    :   float(length)}
-                   obs_length   :       The part observation length
-                   list_lanes   :       List[lane_ids at the intersection]
-        :return:
-                    part_vehicles:      Dict{ lane_id, [vehicle_ids]}
-        """
-        # get vehicle_ids and speeds
-        obs_length = 50
-        first_part_num_vehicle = {}
-        first_part_queue_vehicle = {}  # useless, at the begin of lane, there is no waiting vechiles
-        last_part_num_vehicle = {}
-        last_part_queue_vehicle = {}
-
-        for lane in list_lanes:
-            first_part_num_vehicle[lane] = []
-            first_part_queue_vehicle[lane] = []
-            last_part_num_vehicle[lane] = []
-            last_part_queue_vehicle[lane] = []
-            last_part_obs_length = lane_length[lane] - obs_length
-            for vehicle in lane_vehicles[lane]:
-                """ get the first part of obs
-                    That is vehicle_distance <= obs_length 
-                """
-                # set as num_vehicle
-                if "shadow" in vehicle:  # remove the shadow
-                    vehicle = vehicle[:-7]
-                temp_v_distance = vehicle_distance[vehicle]
-                if temp_v_distance <= obs_length:
-                    first_part_num_vehicle[lane].append(vehicle)
-                    # analyse if waiting
-                    if vehicle_speed[vehicle] <= 0.1:
-                        first_part_queue_vehicle[lane].append(vehicle)
-
-                """ get the last part of obs
-                    That is  lane_length-obs_length <= vehicle_distance <= lane_length 
-                """
-                if temp_v_distance >= last_part_obs_length:
-                    last_part_num_vehicle[lane].append(vehicle)
-                    # analyse if waiting
-                    if vehicle_speed[vehicle] <= 0.1:
-                        last_part_queue_vehicle[lane].append(vehicle)
-
-        return first_part_num_vehicle, last_part_num_vehicle, last_part_queue_vehicle
 
     def _get_pressure(self, l_in, l_out):
         return list(np.array(l_in)-np.array(l_out))
