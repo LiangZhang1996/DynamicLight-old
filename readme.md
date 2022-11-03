@@ -2,6 +2,7 @@
 
 Official code for article <DynamicLight: Dynamically tuning traffic signal duration based on deep reinforcement learning for signalized intersections>.
 
+The article at: https://doi.org/10.48550/arXiv.2211.01025.
 
 # 2. Requirements
 
