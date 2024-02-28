@@ -65,7 +65,8 @@ You can refer to the `DynamicLight/models` for more details.
 For the baseline methods, refer to [Efficient-XLight](https://github.com/LiangZhang1996/Efficient_XLight.git) and [Advanced-XLight](https://github.com/LiangZhang1996/Advanced_XLight.git)
 
 
-
+## License
+This project is licensed under the GNU General Public License version 3 (GPLv3) - see the LICENSE file for details.
 
 
 
