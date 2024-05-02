@@ -1,3 +1,6 @@
+# Notice
+Our article and code have been updated and the new code is avaliable at https://Liangzhang1996/DynamicLight.
+
 # 1. Introduction
 
 Official code for article <DynamicLight: Dynamically Tuning Traffic Signal Duration with DRL>.
