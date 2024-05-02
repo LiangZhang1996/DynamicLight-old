@@ -1,5 +1,5 @@
 # Notice
-Our article and code have been updated and the new code is avaliable at https://Liangzhang1996/DynamicLight.
+Our article and code have been updated and the new code is avaliable at https://LiangZhang1996/DynamicLight.
 
 # 1. Introduction
 
